@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/mhsanaei/3x-ui/v2/config"
+	ldaputil "github.com/mhsanaei/3x-ui/v2/util/ldap"
+	"github.com/mhsanaei/3x-ui/v2/web/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -27,6 +29,7 @@ type SUBController struct {
 
 	subService     *SubService
 	subJsonService *SubJsonService
+	settingService service.SettingService
 }
 
 // NewSUBController creates a new subscription controller with the given configuration.
@@ -49,6 +52,7 @@ func NewSUBController(
 	subAnnounce string,
 	subEnableRouting bool,
 	subRoutingRules string,
+	settingService service.SettingService,
 ) *SUBController {
 	sub := NewSubService(showInfo, rModel)
 	a := &SUBController{
@@ -66,6 +70,7 @@ func NewSUBController(
 
 		subService:     sub,
 		subJsonService: NewSubJsonService(jsonFragment, jsonNoise, jsonMux, jsonRules, sub),
+		settingService: settingService,
 	}
 	a.initRouter(g)
 	return a
@@ -75,11 +80,73 @@ func NewSUBController(
 // on the provided router group.
 func (a *SUBController) initRouter(g *gin.RouterGroup) {
 	gLink := g.Group(a.subPath)
+	gLink.Use(a.ldapAuthMiddleware())
 	gLink.GET(":subid", a.subs)
 	if a.jsonEnabled {
 		gJson := g.Group(a.subJsonPath)
+		gJson.Use(a.ldapAuthMiddleware())
 		gJson.GET(":subid", a.subJsons)
 	}
+}
+
+// ldapAuthMiddleware returns a Gin middleware that enforces LDAP Basic Auth
+// when the ldapSubAuth setting is enabled. The authenticated username must
+// match the requested subId, otherwise a 403 Forbidden is returned.
+func (a *SUBController) ldapAuthMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ldapSubAuthEnabled, err := a.settingService.GetLdapSubAuth()
+		if err != nil || !ldapSubAuthEnabled {
+			c.Next()
+			return
+		}
+
+		username, password, hasAuth := c.Request.BasicAuth()
+		if !hasAuth {
+			c.Header("WWW-Authenticate", `Basic realm="Subscription"`)
+			c.AbortWithStatus(401)
+			return
+		}
+
+		ldapHost := mustGet(a.settingService.GetLdapHost)
+		if ldapHost == "" {
+			// LDAP is not configured; deny access to avoid exposing subscriptions
+			c.AbortWithStatus(503)
+			return
+		}
+
+		cfg := ldaputil.Config{
+			Host:       ldapHost,
+			Port:       mustGet(a.settingService.GetLdapPort),
+			UseTLS:     mustGet(a.settingService.GetLdapUseTLS),
+			BindDN:     mustGet(a.settingService.GetLdapBindDN),
+			Password:   mustGet(a.settingService.GetLdapPassword),
+			BaseDN:     mustGet(a.settingService.GetLdapBaseDN),
+			UserFilter: mustGet(a.settingService.GetLdapUserFilter),
+			UserAttr:   mustGet(a.settingService.GetLdapUserAttr),
+		}
+
+		ok, err := ldaputil.AuthenticateUser(cfg, username, password)
+		if err != nil || !ok {
+			c.Header("WWW-Authenticate", `Basic realm="Subscription"`)
+			c.AbortWithStatus(401)
+			return
+		}
+
+		// Use case-insensitive comparison since LDAP/AD usernames are case-insensitive
+		subId := c.Param("subid")
+		if !strings.EqualFold(username, subId) {
+			c.AbortWithStatus(403)
+			return
+		}
+
+		c.Next()
+	}
+}
+
+// mustGet is a generic helper that returns the value from a getter or the zero value on error.
+func mustGet[T any](fn func() (T, error)) T {
+	v, _ := fn()
+	return v
 }
 
 // subs handles HTTP requests for subscription links, returning either HTML page or base64-encoded subscription data.

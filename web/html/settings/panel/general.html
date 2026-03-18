@@ -258,6 +258,13 @@
             </template>
         </a-setting-list-item>
         <a-setting-list-item paddings="small">
+            <template #title>LDAP Subscription Auth</template>
+            <template #description>Require LDAP Basic Auth for subscription endpoint (/sub/:subid)</template>
+            <template #control>
+                <a-switch v-model="allSetting.ldapSubAuth"></a-switch>
+            </template>
+        </a-setting-list-item>
+        <a-setting-list-item paddings="small">
             <template #title>Default total (GB)</template>
             <template #control>
                 <a-input-number :min="0" v-model="allSetting.ldapDefaultTotalGB" :style="{ width: '100%' }"></a-input-number>
