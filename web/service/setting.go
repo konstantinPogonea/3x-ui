@@ -102,6 +102,7 @@ var defaultValueMap = map[string]string{
 	"ldapDefaultTotalGB":    "0",
 	"ldapDefaultExpiryDays": "0",
 	"ldapDefaultLimitIP":    "0",
+	"ldapSubAuth":           "false",
 }
 
 // SettingService provides business logic for application settings management.
@@ -686,6 +687,11 @@ func (s *SettingService) GetLdapDefaultExpiryDays() (int, error) {
 
 func (s *SettingService) GetLdapDefaultLimitIP() (int, error) {
 	return s.getInt("ldapDefaultLimitIP")
+}
+
+// GetLdapSubAuth returns whether LDAP Basic Auth is required for subscription endpoint.
+func (s *SettingService) GetLdapSubAuth() (bool, error) {
+	return s.getBool("ldapSubAuth")
 }
 
 func (s *SettingService) UpdateAllSetting(allSetting *entity.AllSetting) error {
