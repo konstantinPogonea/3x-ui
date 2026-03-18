@@ -275,6 +275,12 @@
                 <a-input-number :min="0" v-model="allSetting.ldapDefaultLimitIP" :style="{ width: '100%' }"></a-input-number>
             </template>
         </a-setting-list-item>
+        <a-setting-list-item paddings="small">
+            <template #title>Enable LDAP Subscription Portal</template>
+            <template #control>
+                <a-switch v-model="allSetting.ldapSubPortal"></a-switch>
+            </template>
+        </a-setting-list-item>
     </a-collapse-panel>
 </a-collapse>
 {{end}}

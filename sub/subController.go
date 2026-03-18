@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/mhsanaei/3x-ui/v2/config"
+	ldaputil "github.com/mhsanaei/3x-ui/v2/util/ldap"
+	"github.com/mhsanaei/3x-ui/v2/web/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -27,6 +29,9 @@ type SUBController struct {
 
 	subService     *SubService
 	subJsonService *SubJsonService
+
+	settingService service.SettingService
+	inboundService service.InboundService
 }
 
 // NewSUBController creates a new subscription controller with the given configuration.
@@ -49,6 +54,8 @@ func NewSUBController(
 	subAnnounce string,
 	subEnableRouting bool,
 	subRoutingRules string,
+	settingService service.SettingService,
+	inboundService service.InboundService,
 ) *SUBController {
 	sub := NewSubService(showInfo, rModel)
 	a := &SUBController{
@@ -66,6 +73,9 @@ func NewSUBController(
 
 		subService:     sub,
 		subJsonService: NewSubJsonService(jsonFragment, jsonNoise, jsonMux, jsonRules, sub),
+
+		settingService: settingService,
+		inboundService: inboundService,
 	}
 	a.initRouter(g)
 	return a
@@ -80,6 +90,7 @@ func (a *SUBController) initRouter(g *gin.RouterGroup) {
 		gJson := g.Group(a.subJsonPath)
 		gJson.GET(":subid", a.subJsons)
 	}
+	g.GET("/ldap-sub", a.ldapSubPortal)
 }
 
 // subs handles HTTP requests for subscription links, returning either HTML page or base64-encoded subscription data.
@@ -210,4 +221,94 @@ func (a *SUBController) ApplyCommonHeaders(
 	if profileRoutingRules != "" {
 		c.Writer.Header().Set("Routing", profileRoutingRules)
 	}
+}
+
+// buildLdapConfig constructs an LDAP configuration from the setting service.
+func (a *SUBController) buildLdapConfig() (ldaputil.Config, error) {
+	host, err := a.settingService.GetLdapHost()
+	if err != nil {
+		return ldaputil.Config{}, err
+	}
+	port, err := a.settingService.GetLdapPort()
+	if err != nil {
+		return ldaputil.Config{}, err
+	}
+	useTLS, err := a.settingService.GetLdapUseTLS()
+	if err != nil {
+		return ldaputil.Config{}, err
+	}
+	bindDN, err := a.settingService.GetLdapBindDN()
+	if err != nil {
+		return ldaputil.Config{}, err
+	}
+	password, err := a.settingService.GetLdapPassword()
+	if err != nil {
+		return ldaputil.Config{}, err
+	}
+	baseDN, err := a.settingService.GetLdapBaseDN()
+	if err != nil {
+		return ldaputil.Config{}, err
+	}
+	userFilter, err := a.settingService.GetLdapUserFilter()
+	if err != nil {
+		return ldaputil.Config{}, err
+	}
+	userAttr, err := a.settingService.GetLdapUserAttr()
+	if err != nil {
+		return ldaputil.Config{}, err
+	}
+	return ldaputil.Config{
+		Host:       host,
+		Port:       port,
+		UseTLS:     useTLS,
+		BindDN:     bindDN,
+		Password:   password,
+		BaseDN:     baseDN,
+		UserFilter: userFilter,
+		UserAttr:   userAttr,
+	}, nil
+}
+
+// ldapSubPortal handles LDAP-authenticated subscription portal requests.
+// It requires Basic Auth, verifies credentials via LDAP, finds the authenticated
+// user's client by email, and redirects to their subscription page.
+func (a *SUBController) ldapSubPortal(c *gin.Context) {
+	// Check if LDAP subscription portal is enabled
+	enabled, err := a.settingService.GetLdapSubPortal()
+	if err != nil || !enabled {
+		c.String(404, "LDAP Subscription Portal is not enabled")
+		return
+	}
+
+	// Require Basic Auth
+	username, password, hasAuth := c.Request.BasicAuth()
+	if !hasAuth {
+		c.Header("WWW-Authenticate", `Basic realm="VPN Subscription"`)
+		c.AbortWithStatus(401)
+		return
+	}
+
+	// Verify credentials via LDAP
+	cfg, err := a.buildLdapConfig()
+	if err != nil {
+		c.String(503, "Unable to process request")
+		return
+	}
+	ok, err := ldaputil.AuthenticateUser(cfg, username, password)
+	if err != nil || !ok {
+		c.Header("WWW-Authenticate", `Basic realm="VPN Subscription"`)
+		c.AbortWithStatus(401)
+		return
+	}
+
+	// Find client by email (username = sAMAccountName = email in client)
+	_, client, err := a.inboundService.GetClientByEmail(username)
+	if err != nil || client == nil || client.SubID == "" {
+		// Use a generic message to prevent user enumeration
+		c.String(404, "No subscription found")
+		return
+	}
+
+	// Redirect to the subscription page using the client's existing SubID
+	c.Redirect(302, fmt.Sprintf("%s%s", a.subPath, client.SubID))
 }

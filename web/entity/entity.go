@@ -103,6 +103,7 @@ type AllSetting struct {
 	LdapDefaultTotalGB    int    `json:"ldapDefaultTotalGB" form:"ldapDefaultTotalGB"`
 	LdapDefaultExpiryDays int    `json:"ldapDefaultExpiryDays" form:"ldapDefaultExpiryDays"`
 	LdapDefaultLimitIP    int    `json:"ldapDefaultLimitIP" form:"ldapDefaultLimitIP"`
+	LdapSubPortal         bool   `json:"ldapSubPortal" form:"ldapSubPortal"`
 	// JSON subscription routing rules
 }
 
