@@ -193,6 +193,7 @@ func (j *LdapSyncJob) buildClient(ib *model.Inbound, email string, defGB, defExp
 		Enable:  true,
 		LimitIP: defLimitIP,
 		TotalGB: int64(defGB),
+		SubID:   uuid.NewString(),
 	}
 	if defExpiryDays > 0 {
 		c.ExpiryTime = time.Now().Add(time.Duration(defExpiryDays) * 24 * time.Hour).UnixMilli()
@@ -352,6 +353,11 @@ func (j *LdapSyncJob) clientToJSON(c model.Client) string {
 	if c.ExpiryTime > 0 {
 		b.WriteString(",\"expiryTime\":")
 		b.WriteString(strconv.FormatInt(c.ExpiryTime, 10))
+	}
+	if c.SubID != "" {
+		b.WriteString(",\"subId\":\"")
+		b.WriteString(c.SubID)
+		b.WriteString("\"")
 	}
 	b.WriteString("}")
 	return b.String()
